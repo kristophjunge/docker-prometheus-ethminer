@@ -1,0 +1,13 @@
+version: '2'
+
+services:
+  prometheus_ethminer:
+    container_name: prometheus_ethminer
+    build: .
+    environment:
+      MINER_ID: "${MINER_ID}"
+    ports:
+      - "9201:9201"
+    volumes:
+      - "./test.log:/var/log/ethminer.log"
+      #- "/var/log/ethminer.log:/var/log/ethminer.log"
