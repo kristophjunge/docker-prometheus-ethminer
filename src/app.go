@@ -14,7 +14,7 @@ import (
 
 // Constants
 const MAX_LINES = 100
-const MAX_DELAY = 120 // Lets try two minutes to avoids being reported as down when switching from 23:59 to 00:00
+const MAX_DELAY = 120 // Lets try two minutes to avoid reporting as down when switching from 23:59 to 00:00
 
 // Configuration variables
 var logPath string
