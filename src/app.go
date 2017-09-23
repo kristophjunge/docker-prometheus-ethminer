@@ -12,11 +12,10 @@ import (
     "github.com/rogpeppe/rog-go/reverse"
 )
 
-// Constants
-const MAX_LINES = 100
-const MAX_DELAY = 120 // Lets try two minutes to avoid reporting as down when switching from 23:59 to 00:00
+const LISTEN_ADDRESS = ":9201"
+const MAX_LOG_LINES_TO_READ = 100
+const MAX_LOG_MESSAGE_AGE_SECONDS = 120 // Lets try two minutes to avoid reporting as down when switching from 23:59 to 00:00
 
-// Configuration variables
 var logPath string
 var minerId string
 var timeZone string
@@ -103,9 +102,9 @@ func metrics(w http.ResponseWriter, r *http.Request) {
 
         // Exit if we are reading too many lines without finding a valid one
         readLines++
-        if (readLines > MAX_LINES) {
+        if (readLines > MAX_LOG_LINES_TO_READ) {
             up = 0
-            log.Println("No valid log line found in the last " + integerToString(MAX_LINES) + " lines, exiting")
+            log.Println("No valid log line found in the last " + integerToString(MAX_LOG_LINES_TO_READ) + " lines, exiting")
             break
         }
 
@@ -143,8 +142,8 @@ func metrics(w http.ResponseWriter, r *http.Request) {
         //log.Print(seconds)
 
         // Check if last log message is older then allowed
-        if (seconds > MAX_DELAY || seconds < 0) {
-            log.Print("Last message from " + logTime.Format(time.RFC3339) + " is " + floatToString(seconds, 0) + " seconds before/after current time " + now.Format(time.RFC3339) + " which is above the allowed limit of " + integerToString(MAX_DELAY) + " seconds, miner is inactive")
+        if (seconds > MAX_LOG_MESSAGE_AGE_SECONDS || seconds < 0) {
+            log.Print("Last message from " + logTime.Format(time.RFC3339) + " is " + floatToString(seconds, 0) + " seconds before/after current time " + now.Format(time.RFC3339) + " which is above the allowed limit of " + integerToString(MAX_LOG_MESSAGE_AGE_SECONDS) + " seconds, miner is inactive")
             break;
         }
 
@@ -167,7 +166,6 @@ func metrics(w http.ResponseWriter, r *http.Request) {
 
 func index(w http.ResponseWriter, r *http.Request) {
     log.Print("Serving /index")
-
     html := string(`<!doctype html>
 <html>
     <head>
@@ -180,7 +178,6 @@ func index(w http.ResponseWriter, r *http.Request) {
     </body>
 </html>
 `)
-
     io.WriteString(w, html)
 }
 
@@ -206,8 +203,8 @@ func main() {
     }
     log.Print("Using timezone: " + timeZone + ", Current time: " + time.Now().In(timeZoneLocation).Format(time.RFC3339))
 
-    log.Print("Ethminer exporter running")
+    log.Print("Ethminer exporter listening on " + LISTEN_ADDRESS)
     http.HandleFunc("/", index)
     http.HandleFunc("/metrics", metrics)
-    http.ListenAndServe(":9201", nil)
+    http.ListenAndServe(LISTEN_ADDRESS, nil)
 }
