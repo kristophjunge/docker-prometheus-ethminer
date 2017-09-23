@@ -195,7 +195,7 @@ func main() {
 
     timeZone = os.Getenv("TIME_ZONE")
     if timeZone == "" {
-        timeZone = "Europe/Berlin"
+        timeZone = "UTC"
     }
     timeZoneLocation, err = time.LoadLocation(timeZone)
     if err != nil {

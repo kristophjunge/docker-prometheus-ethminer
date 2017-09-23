@@ -6,6 +6,7 @@ services:
     build: .
     environment:
       MINER_ID: "${MINER_ID}"
+      TIME_ZONE: "${TIME_ZONE}"
     ports:
       - "9201:9201"
     volumes:
