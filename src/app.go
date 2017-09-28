@@ -158,11 +158,13 @@ func metrics(w http.ResponseWriter, r *http.Request) {
         log.Fatal(err)
     }
 
-    io.WriteString(w, formatValue("ethminer_up", "miner=\"" + minerId + "\"", integerToString(up)))
-    if (up == 1) {
-        io.WriteString(w, formatValue("ethminer_lastactivity", "miner=\"" + minerId + "\"", strconv.FormatInt(logTime.Unix(), 10)))
-        io.WriteString(w, formatValue("ethminer_hashrate", "miner=\"" + minerId + "\"", floatToString(hashRate, 2)))
+    if up == 0 {
+        hashRate = 0
     }
+
+    io.WriteString(w, formatValue("ethminer_up", "miner=\"" + minerId + "\"", integerToString(up)))
+    io.WriteString(w, formatValue("ethminer_lastactivity", "miner=\"" + minerId + "\"", strconv.FormatInt(logTime.Unix(), 10)))
+    io.WriteString(w, formatValue("ethminer_hashrate", "miner=\"" + minerId + "\"", floatToString(hashRate, 2)))
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
