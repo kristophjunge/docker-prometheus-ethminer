@@ -2,7 +2,18 @@
 
 Dockerized Prometheus exporter to monitor ethminer log output written in Go.
 
-Exports status up|down and hashrate.
+Exports status up|down, timestamp of last activity and hashrate.
+
+Example output:
+
+```
+ethminer_up{miner="default"} 1
+ethminer_lastactivity{miner="default"} 1506727383
+ethminer_hashrate{miner="default"} 188.74
+```
+
+The detection if the miner is active is done by checking that the last log time is not older than 60 seconds.
+
 
 ## Known Issues
 

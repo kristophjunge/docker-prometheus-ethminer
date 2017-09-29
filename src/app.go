@@ -15,6 +15,9 @@ import (
 const LISTEN_ADDRESS = ":9201"
 const MAX_LOG_LINES_TO_READ = 100
 const MAX_LOG_MESSAGE_AGE_SECONDS = 60
+const REGEXP_HASH_RATE = "\\s?([\\d.]+)\\s?MH/s\\s?"
+const REGEXP_LOG_TIME = "([\\d]{2,2}):([\\d]{2,2}):([\\d]{2,2})"
+const REGEXP_SET_WORK_LINE = "set work"
 
 var logPath string
 var minerId string
@@ -57,7 +60,7 @@ func formatValue(key string, meta string, value string) string {
 }
 
 func parseHashRate(line string) (float64, error) {
-    expression := regexp.MustCompile("\\s?([\\d.]+)\\s?MH/s\\s?")
+    expression := regexp.MustCompile(REGEXP_HASH_RATE)
     match := expression.FindStringSubmatch(line)
     if (len(match) > 0) {
         return stringToFloat(match[1]), nil
@@ -66,7 +69,7 @@ func parseHashRate(line string) (float64, error) {
 }
 
 func parseTime(line string) (int, int, int, error) {
-    expression := regexp.MustCompile("([\\d]{2,2}):([\\d]{2,2}):([\\d]{2,2})")
+    expression := regexp.MustCompile(REGEXP_LOG_TIME)
     match := expression.FindStringSubmatch(line)
     if (len(match) > 0) {
         return stringToInteger(match[1]), stringToInteger(match[2]), stringToInteger(match[3]), nil
@@ -75,7 +78,7 @@ func parseTime(line string) (int, int, int, error) {
 }
 
 func isSetWorkLine(line string) bool {
-    expression := regexp.MustCompile("set work")
+    expression := regexp.MustCompile(REGEXP_SET_WORK_LINE)
     return expression.MatchString(line)
 }
 
