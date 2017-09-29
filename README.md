@@ -14,6 +14,8 @@ ethminer_hashrate{miner="default"} 188.74
 
 The detection if the miner is active is done by checking that the last log time is not older than 60 seconds.
 
+Works with large log files by reading the log file line by line from its end only until the necessary log line is found.
+
 
 ## Known Issues
 
