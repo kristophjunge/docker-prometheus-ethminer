@@ -14,7 +14,7 @@ import (
 
 const LISTEN_ADDRESS = ":9201"
 const MAX_LOG_LINES_TO_READ = 100
-const MAX_LOG_MESSAGE_AGE_SECONDS = 120 // Lets try two minutes to avoid reporting as down when switching from 23:59 to 00:00
+const MAX_LOG_MESSAGE_AGE_SECONDS = 60
 
 var logPath string
 var minerId string
@@ -74,6 +74,11 @@ func parseTime(line string) (int, int, int, error) {
     return 0, 0, 0, errors.New("Could not parse time ")
 }
 
+func isSetWorkLine(line string) bool {
+    expression := regexp.MustCompile("set work")
+    return expression.MatchString(line)
+}
+
 func metrics(w http.ResponseWriter, r *http.Request) {
     log.Print("Serving /metrics")
 
@@ -85,6 +90,17 @@ func metrics(w http.ResponseWriter, r *http.Request) {
     var logMinute int
     var logSecond int
     var logTime time.Time
+    var line string
+    var previousLine string
+
+    // Read last log file modification time
+    fileInfo, err := os.Stat(logPath)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fileModifiedTime := fileInfo.ModTime().In(timeZoneLocation)
+    // Use the file modified time as last log time if we don't find a time inside the log file.
+    logTime = fileModifiedTime
 
     // Open log file
     file, err := os.Open(logPath)
@@ -97,7 +113,13 @@ func metrics(w http.ResponseWriter, r *http.Request) {
     scanner := reverse.NewScanner(file)
 
     for scanner.Scan() {
-        line := scanner.Text()
+        // Always scan one line further to be able to detect decreasing hash rate reports after "set work" log lines.
+        // 23:23:04|cudaminer6set work; seed: #f641c97b, target:#0000000112e0
+        // 23:23:04|ethminer Mining on PoWhash #843ed6bf: 68.16MH/s [A611+3:R0+0:F0]
+        // 23:23:04|ethminer Mining on PoWhash #843ed6bf: 178.26MH/s [A611+3:R0+0:F0]
+        // This introduces the known issue that the log file parsing does not work when it only contains a single line.
+        previousLine = line
+        line = scanner.Text()
         //log.Println(line)
 
         // Exit if we are reading too many lines without finding a valid one
@@ -109,25 +131,31 @@ func metrics(w http.ResponseWriter, r *http.Request) {
         }
 
         // Parse hash rate
-        hashRate, err = parseHashRate(line)
+        hashRate, err = parseHashRate(previousLine)
         if err != nil {
             continue
         }
         //log.Print(hashRate)
 
         // Parse time
-        logHour, logMinute, logSecond, err = parseTime(line)
+        logHour, logMinute, logSecond, err = parseTime(previousLine)
         if err != nil {
             continue
         }
         //log.Print(logHour)
 
-        // Combine current date with log time
-        now := time.Now().In(timeZoneLocation)
+        // If the previous line is a set work line ignore current line
+        // since it might contain a temporary decreasing hash rate.
+        if isSetWorkLine(line) {
+            log.Print("Skipping set work line")
+            continue
+        }
+
+        // Combine log file modification date with log time from inside the log file
         logTime = time.Date(
-            now.Year(),
-            now.Month(),
-            now.Day(),
+            fileModifiedTime.Year(),
+            fileModifiedTime.Month(),
+            fileModifiedTime.Day(),
             logHour,
             logMinute,
             logSecond,
@@ -137,6 +165,7 @@ func metrics(w http.ResponseWriter, r *http.Request) {
         //log.Print(now)
         //log.Print(logTime)
 
+        now := time.Now().In(timeZoneLocation)
         delta := now.Sub(logTime)
         seconds := delta.Seconds()
         //log.Print(seconds)
@@ -144,12 +173,9 @@ func metrics(w http.ResponseWriter, r *http.Request) {
         // Check if last log message is older then allowed
         if (seconds > MAX_LOG_MESSAGE_AGE_SECONDS || seconds < 0) {
             log.Print("Last message from " + logTime.Format(time.RFC3339) + " is " + floatToString(seconds, 0) + " seconds before/after current time " + now.Format(time.RFC3339) + " which is above the allowed limit of " + integerToString(MAX_LOG_MESSAGE_AGE_SECONDS) + " seconds, miner is inactive")
-            break;
+        } else {
+            up = 1
         }
-
-        log.Print("Miner is active with a hashrate of " + floatToString(hashRate, 2) + "MH/s")
-
-        up = 1
 
         break;
     }
@@ -160,6 +186,8 @@ func metrics(w http.ResponseWriter, r *http.Request) {
 
     if up == 0 {
         hashRate = 0
+    } else {
+        log.Print("Miner is active with a hashrate of " + floatToString(hashRate, 2) + "MH/s")
     }
 
     io.WriteString(w, formatValue("ethminer_up", "miner=\"" + minerId + "\"", integerToString(up)))
