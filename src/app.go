@@ -13,6 +13,7 @@ import (
 )
 
 const LISTEN_ADDRESS = ":9201"
+const LOG_PATH = "/var/log/ethminer.log"
 const MAX_LOG_LINES_TO_READ = 100
 const MAX_LOG_MESSAGE_AGE_SECONDS = 60
 const REGEXP_HASH_RATE = "\\s?([\\d.]+)\\s?MH/s\\s?"
@@ -218,7 +219,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 func main() {
     var err error
 
-    logPath = "/var/log/ethminer.log"
+    logPath = LOG_PATH
     log.Print("Monitoring logfile: " + logPath)
 
     minerId = os.Getenv("MINER_ID")
