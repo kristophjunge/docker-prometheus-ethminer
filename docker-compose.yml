@@ -5,10 +5,8 @@ services:
     container_name: prometheus_ethminer
     build: .
     environment:
+      TEST_MODE: "${TEST_MODE}"
       MINER_ID: "${MINER_ID}"
-      TIME_ZONE: "${TIME_ZONE}"
+      API_URL: "${API_URL}"
     ports:
       - "9201:9201"
-    volumes:
-      - "./test.log:/var/log/ethminer.log"
-      #- "/var/log/ethminer.log:/var/log/ethminer.log"

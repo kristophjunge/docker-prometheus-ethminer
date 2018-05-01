@@ -6,43 +6,48 @@ import (
     "log"
     "os"
     "strconv"
-    "regexp"
-    "time"
-    "errors"
-    "github.com/rogpeppe/rog-go/reverse"
+    "io/ioutil"
+    "encoding/json"
+    "net"
+    "strings"
 )
 
 const LISTEN_ADDRESS = ":9201"
-const LOG_PATH = "/var/log/ethminer.log"
-const MAX_LOG_LINES_TO_READ = 100
-const MAX_LOG_MESSAGE_AGE_SECONDS = 60
-const REGEXP_HASH_RATE = "\\s?([\\d.]+)\\s?MH/s\\s?"
-const REGEXP_LOG_TIME = "([\\d]{2,2}):([\\d]{2,2}):([\\d]{2,2})"
-const REGEXP_SET_WORK_LINE = "set work"
 
-var logPath string
+var apiUrl string
 var minerId string
-var timeZone string
-var timeZoneLocation *time.Location
+var testMode string
 
-func floatToString(value float64, precision int) string {
-    return strconv.FormatFloat(value, 'f', precision, 64)
+type EthminerStatistics struct {
+    ID int64 `json:"id"`
+    JSONRPC string `json:"jsonrpc"`
+    Result []string `json:"result"`
 }
 
-func integerToString(value int) string {
-    return strconv.Itoa(value)
-}
-
-func stringToFloat(value string) float64 {
-    result, err := strconv.ParseFloat(value, 64)
+func stringToInteger(value string) int64 {
+    if value == "" {
+        return 0
+    }
+    result, err := strconv.ParseInt(value, 10, 64)
     if err != nil {
         log.Fatal(err)
     }
     return result
 }
 
-func stringToInteger(value string) int {
-    result, err := strconv.Atoi(value)
+func integerToString(value int64) string {
+    return strconv.FormatInt(value, 10)
+}
+
+func floatToString(value float64, precision int64) string {
+    return strconv.FormatFloat(value, 'f', int(precision), 64)
+}
+
+func stringToFloat(value string) float64 {
+    if value == "" {
+        return 0
+    }
+    result, err := strconv.ParseFloat(value, 64)
     if err != nil {
         log.Fatal(err)
     }
@@ -60,143 +65,70 @@ func formatValue(key string, meta string, value string) string {
     return result
 }
 
-func parseHashRate(line string) (float64, error) {
-    expression := regexp.MustCompile(REGEXP_HASH_RATE)
-    match := expression.FindStringSubmatch(line)
-    if (len(match) > 0) {
-        return stringToFloat(match[1]), nil
-    }
-    return 0, errors.New("Could not parse hash rate ")
+const StopCharacter = "\r\n\r\n"
+
+func queryData() (string, error) {
+    var err error
+
+    message := "{\"method\":\"miner_getstat1\",\"jsonrpc\":\"2.0\",\"id\":5}"
+
+	conn, err := net.Dial("tcp", apiUrl)
+
+	if err != nil {
+		return "", err
+	}
+
+    defer conn.Close()
+
+	conn.Write([]byte(message))
+	conn.Write([]byte(StopCharacter))
+
+	buff := make([]byte, 1024)
+	n, _ := conn.Read(buff)
+
+    return string(buff[:n]), nil;
 }
 
-func parseTime(line string) (int, int, int, error) {
-    expression := regexp.MustCompile(REGEXP_LOG_TIME)
-    match := expression.FindStringSubmatch(line)
-    if (len(match) > 0) {
-        return stringToInteger(match[1]), stringToInteger(match[2]), stringToInteger(match[3]), nil
+func getTestData() (string, error) {
+    dir, err := os.Getwd()
+    if err != nil {
+        return "", err;
     }
-    return 0, 0, 0, errors.New("Could not parse time ")
-}
-
-func isSetWorkLine(line string) bool {
-    expression := regexp.MustCompile(REGEXP_SET_WORK_LINE)
-    return expression.MatchString(line)
+    body, err := ioutil.ReadFile(dir + "/test.json")
+    if err != nil {
+        return "", err;
+    }
+    return string(body), nil
 }
 
 func metrics(w http.ResponseWriter, r *http.Request) {
     log.Print("Serving /metrics")
 
+    var up int64 = 1
+    var hashRate float64 = 0
+    var jsonString string
     var err error
-    var up int = 0
-    var readLines int
-    var hashRate float64
-    var logHour int
-    var logMinute int
-    var logSecond int
-    var logTime time.Time
-    var line string
-    var previousLine string
 
-    // Read last log file modification time
-    fileInfo, err := os.Stat(logPath)
-    if err != nil {
-        log.Fatal(err)
-    }
-    fileModifiedTime := fileInfo.ModTime().In(timeZoneLocation)
-    // Use the file modified time as last log time if we don't find a time inside the log file.
-    logTime = fileModifiedTime
-
-    // Open log file
-    file, err := os.Open(logPath)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer file.Close()
-
-    // Create a new scanner and read the file line by line in reverse order
-    scanner := reverse.NewScanner(file)
-
-    for scanner.Scan() {
-        // Always scan one line further to be able to detect decreasing hash rate reports after "set work" log lines.
-        // 23:23:04|cudaminer6set work; seed: #f641c97b, target:#0000000112e0
-        // 23:23:04|ethminer Mining on PoWhash #843ed6bf: 68.16MH/s [A611+3:R0+0:F0]
-        // 23:23:04|ethminer Mining on PoWhash #843ed6bf: 178.26MH/s [A611+3:R0+0:F0]
-        // This introduces the known issue that the log file parsing does not work when it only contains a single line.
-        previousLine = line
-        line = scanner.Text()
-        //log.Println(line)
-
-        // Exit if we are reading too many lines without finding a valid one
-        readLines++
-        if (readLines > MAX_LOG_LINES_TO_READ) {
-            up = 0
-            log.Println("No valid log line found in the last " + integerToString(MAX_LOG_LINES_TO_READ) + " lines, exiting")
-            break
-        }
-
-        // Parse hash rate
-        hashRate, err = parseHashRate(previousLine)
-        if err != nil {
-            continue
-        }
-        //log.Print(hashRate)
-
-        // Parse time
-        logHour, logMinute, logSecond, err = parseTime(previousLine)
-        if err != nil {
-            continue
-        }
-        //log.Print(logHour)
-
-        // If the previous line is a set work line ignore current line
-        // since it might contain a temporary decreasing hash rate.
-        if isSetWorkLine(line) {
-            log.Print("Skipping set work line")
-            continue
-        }
-
-        // Combine log file modification date with log time from inside the log file
-        logTime = time.Date(
-            fileModifiedTime.Year(),
-            fileModifiedTime.Month(),
-            fileModifiedTime.Day(),
-            logHour,
-            logMinute,
-            logSecond,
-            0,
-            timeZoneLocation,
-        )
-        //log.Print(now)
-        //log.Print(logTime)
-
-        now := time.Now().In(timeZoneLocation)
-        delta := now.Sub(logTime)
-        seconds := delta.Seconds()
-        //log.Print(seconds)
-
-        // Check if last log message is older then allowed
-        if (seconds > MAX_LOG_MESSAGE_AGE_SECONDS || seconds < 0) {
-            log.Print("Last message from " + logTime.Format(time.RFC3339) + " is " + floatToString(seconds, 0) + " seconds before/after current time " + now.Format(time.RFC3339) + " which is above the allowed limit of " + integerToString(MAX_LOG_MESSAGE_AGE_SECONDS) + " seconds, miner is inactive")
-        } else {
-            up = 1
-        }
-
-        break;
-    }
-
-    if err = scanner.Err(); err != nil {
-        log.Fatal(err)
-    }
-
-    if up == 0 {
-        hashRate = 0
+    if (testMode == "1") {
+        jsonString, err = getTestData()
     } else {
-        log.Print("Miner is active with a hashrate of " + floatToString(hashRate, 2) + "MH/s")
+        jsonString, err = queryData()
+    }
+    if err != nil {
+        log.Print(err)
+        up = 0
+    } else {
+        // Parse JSON
+        jsonData := EthminerStatistics{}
+        json.Unmarshal([]byte(jsonString), &jsonData)
+
+        s := strings.Split(jsonData.Result[2], ";")
+        hashRate = stringToFloat(s[0]) / 1000
     }
 
+    // Output
     io.WriteString(w, formatValue("ethminer_up", "miner=\"" + minerId + "\"", integerToString(up)))
-    io.WriteString(w, formatValue("ethminer_lastactivity", "miner=\"" + minerId + "\"", strconv.FormatInt(logTime.Unix(), 10)))
-    io.WriteString(w, formatValue("ethminer_hashrate", "miner=\"" + minerId + "\"", floatToString(hashRate, 2)))
+    io.WriteString(w, formatValue("ethminer_hashrate", "miner=\"" + minerId + "\"", floatToString(hashRate, 6)))
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
@@ -217,26 +149,16 @@ func index(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-    var err error
+testMode = os.Getenv("TEST_MODE")
+    if (testMode == "1") {
+        log.Print("Test mode is enabled")
+    }
 
-    logPath = LOG_PATH
-    log.Print("Monitoring logfile: " + logPath)
+    apiUrl = os.Getenv("API_URL")
+    log.Print("API URL: " + apiUrl)
 
     minerId = os.Getenv("MINER_ID")
-    if minerId == "" {
-        minerId = "default"
-    }
-    log.Print("Serving stats with miner id: " + minerId)
-
-    timeZone = os.Getenv("TIME_ZONE")
-    if timeZone == "" {
-        timeZone = "UTC"
-    }
-    timeZoneLocation, err = time.LoadLocation(timeZone)
-    if err != nil {
-        panic(err)
-    }
-    log.Print("Using timezone: " + timeZone + ", Current time: " + time.Now().In(timeZoneLocation).Format(time.RFC3339))
+    log.Print("Miner ID: " + minerId)
 
     log.Print("Ethminer exporter listening on " + LISTEN_ADDRESS)
     http.HandleFunc("/", index)
