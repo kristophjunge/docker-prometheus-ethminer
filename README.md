@@ -2,7 +2,7 @@
 
 Dockerized Prometheus exporter to monitor ethminer log output written in Go.
 
-Exports status up|down and hashrate.
+Exports status status and hashrate.
 
 Example output:
 

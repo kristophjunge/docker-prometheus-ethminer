@@ -10,4 +10,6 @@ RUN go build -v -o bin/app src/app.go
 
 VOLUME /var/log/ethminer.log
 
+EXPOSE 9201
+
 CMD ["./bin/app"]
